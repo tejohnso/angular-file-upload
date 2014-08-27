@@ -433,6 +433,7 @@ module
                 var xhr = item._xhr = new XMLHttpRequest();
                 var form = new FormData();
                 var that = this;
+                var reader;
 
                 that._onBeforeUploadItem(item);
 
@@ -480,7 +481,12 @@ module
                     xhr.setRequestHeader(name, value);
                 });
 
-                xhr.send(form);
+                 reader = new FileReader();
+                 reader.onload = function(e) {
+                   xhr.send(new Blob([e.target.result]));
+                 }
+                 reader.readAsArrayBuffer(item._file);
+
                 this._render();
             };
             /**
@@ -1061,7 +1067,7 @@ module
              * @returns {Boolean}
              */
             FileSelect.prototype.isEmptyAfterSelection = function() {
-                return !!this.element.attr('multiple');
+                return true || !!this.element.attr('multiple');
             };
             /**
              * Event handler
