@@ -462,7 +462,15 @@ module
                 form.append(item.alias, item._file, item.file.name);
 
                 xhr.upload.onprogress = function(event) {
-                    var progress = Math.round(event.lengthComputable ? event.loaded * 100 / event.total : 0);
+                    var previousChunkBytes, progress;
+
+                    if (event.lengthComputable) {
+                      previousChunkBytes = item.chunkSize * (item.currentChunk - 1);
+                      progress = (event.loaded + previousChunkBytes) / item._file.size;
+                      progress = Math.round(progress * 100);
+                    } else {
+                      progress = 0;
+                    }
                     that._onProgressItem(item, progress);
                 };
 
@@ -471,8 +479,17 @@ module
                     var response = that._transformResponse(xhr.response);
                     var gist = that._isSuccessCode(xhr.status) ? 'Success' : 'Error';
                     var method = '_on' + gist + 'Item';
-                    that[method](item, response, xhr.status, headers);
-                    that._onCompleteItem(item, response, xhr.status, headers);
+                    var range;
+                    try {
+                      range = xhr.getResponseHeader("Range");
+                    } catch (e) {}
+
+                    if (xhr.status === 308) {
+                      this.sendChunk(parseInt(range.split("-")[1], 10) + 1)
+                    } else {
+                      that[method](item, response, xhr.status, headers);
+                      that._onCompleteItem(item, response, xhr.status, headers);
+                    }
                 };
 
                 xhr.onerror = function() {
@@ -489,19 +506,30 @@ module
                     that._onCompleteItem(item, response, xhr.status, headers);
                 };
 
-                xhr.open(item.method, item.url, true);
+                xhr.sendChunk = function(startByte) {
+                  var endByte = startByte + item.chunkSize - 1;
+                  var range = "bytes " + startByte + "-" +
+                              Math.min(endByte, item._file.size - 1) +
+                              "/" + item._file.size;
+                  item.currentChunk = item.currentChunk ? item.currentChunk + 1 : 1;
 
-                xhr.withCredentials = item.withCredentials;
+                  xhr.open(item.method, item.url, true);
+                  xhr.withCredentials = item.withCredentials;
 
-                angular.forEach(item.headers, function(value, name) {
+                  angular.forEach(item.headers, function(value, name) {
                     xhr.setRequestHeader(name, value);
-                });
+                  });
 
-                 reader = new FileReader();
-                 reader.onload = function(e) {
-                   xhr.send(new Blob([e.target.result]));
-                 }
-                 reader.readAsArrayBuffer(item._file);
+                  xhr.setRequestHeader("Content-Range", range);
+                  xhr.send(item._file.slice(startByte, startByte + item.chunkSize));
+                }
+
+                xhr.sendChunk(0);
+                //reader = new FileReader();
+                //reader.onload = function(e) {
+                //  xhr.send(new Blob([e.target.result]));
+                //}
+                //reader.readAsArrayBuffer(item._file);
 
                 this._render();
             };
